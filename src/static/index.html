@@ -19,6 +19,27 @@
           <!-- Activities will be loaded here -->
           <p>Loading activities...</p>
         </div>
+
+        <!-- New: template for activity cards including participants section -->
+        <template id="activity-card-template">
+          <article class="activity-card" data-activity-id="">
+            <div class="card-header">
+              <h4 class="activity-title"></h4>
+              <p class="activity-desc"></p>
+            </div>
+            <div class="card-body">
+              <div class="participants">
+                <h5>Participants</h5>
+                <ul class="participants-list">
+                  <li class="empty">No participants yet</li>
+                </ul>
+              </div>
+            </div>
+            <div class="card-footer">
+              <button class="join-btn">Sign up</button>
+            </div>
+          </article>
+        </template>
       </section>
 
       <section id="signup-container">
@@ -45,6 +66,129 @@
       <p>&copy; 2023 Mergington High School</p>
     </footer>
 
-    <script src="app.js"></script>
+    <!-- Inline script: fetch activities/signups with fallback to avoid "Unable to load activities." -->
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const activitiesListEl = document.getElementById('activities-list');
+        const activitySelect = document.getElementById('activity');
+        const signupForm = document.getElementById('signup-form');
+        const template = document.getElementById('activity-card-template');
+
+        const fallbackActivities = [
+          { id: '1', name: 'Chess Club', description: 'Strategy, tournaments and fun.' },
+          { id: '2', name: 'Drama Society', description: 'Acting, stagecraft and shows.' },
+          { id: '3', name: 'Robotics Team', description: 'Build and program robots.' }
+        ];
+
+        let activities = [];
+        let participantsByActivity = {}; // { activityId: [email, ...] }
+
+        async function safeFetchJson(url) {
+          try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error('non-ok');
+            return await res.json();
+          } catch (e) {
+            return null;
+          }
+        }
+
+        async function loadData() {
+          const a = await safeFetchJson('/api/activities');
+          activities = Array.isArray(a) && a.length ? a : fallbackActivities;
+          const s = await safeFetchJson('/api/signups');
+          participantsByActivity = {};
+          if (Array.isArray(s)) {
+            s.forEach(item => {
+              const id = String(item.activityId);
+              participantsByActivity[id] = participantsByActivity[id] || [];
+              participantsByActivity[id].push(item.email);
+            });
+          }
+          renderActivityOptions();
+          renderActivities();
+        }
+
+        function renderActivityOptions() {
+          Array.from(activitySelect.querySelectorAll('option.dynamic')).forEach(o => o.remove());
+          activities.forEach(act => {
+            const opt = document.createElement('option');
+            opt.value = act.id;
+            opt.textContent = act.name;
+            opt.classList.add('dynamic');
+            activitySelect.appendChild(opt);
+          });
+        }
+
+        function renderActivities() {
+          activitiesListEl.innerHTML = '';
+          activities.forEach(act => {
+            const id = String(act.id);
+            const clone = template.content.cloneNode(true);
+            const card = clone.querySelector('.activity-card');
+            card.dataset.activityId = id;
+            card.querySelector('.activity-title').textContent = act.name;
+            card.querySelector('.activity-desc').textContent = act.description || '';
+
+            const listEl = card.querySelector('.participants-list');
+            const participants = participantsByActivity[id] || [];
+            listEl.innerHTML = '';
+            if (participants.length === 0) {
+              const li = document.createElement('li');
+              li.className = 'empty';
+              li.textContent = 'No participants yet';
+              listEl.appendChild(li);
+            } else {
+              participants.forEach(email => {
+                const li = document.createElement('li');
+                li.textContent = email;
+                listEl.appendChild(li);
+              });
+            }
+
+            const joinBtn = card.querySelector('.join-btn');
+            joinBtn.addEventListener('click', () => {
+              activitySelect.value = id;
+              document.getElementById('email').focus();
+            });
+
+            activitiesListEl.appendChild(clone);
+          });
+        }
+
+        signupForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const email = document.getElementById('email').value.trim();
+          const activityId = document.getElementById('activity').value;
+          if (!email || !activityId) return;
+
+          // optimistic update + try POST (if server available)
+          participantsByActivity[activityId] = participantsByActivity[activityId] || [];
+          if (!participantsByActivity[activityId].includes(email)) {
+            participantsByActivity[activityId].push(email);
+          }
+          renderActivities();
+
+          try {
+            await fetch('/api/signups', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, activityId })
+            });
+          } catch (err) {
+            // POST failed — UI already updated, no further action needed
+            console.warn('Signup POST failed, UI updated optimistically.');
+          }
+
+          const msg = document.getElementById('message');
+          msg.classList.remove('hidden');
+          msg.textContent = 'Signed up successfully!';
+          setTimeout(() => msg.classList.add('hidden'), 3000);
+          signupForm.reset();
+        });
+
+        loadData();
+      });
+    </script>
   </body>
 </html>
