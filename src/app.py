@@ -6,6 +6,7 @@ for extracurricular activities at Mergington High School.
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi import Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
@@ -86,6 +87,62 @@ def root():
 @app.get("/activities")
 def get_activities():
     return activities
+
+
+# API endpoints for frontend compatibility
+@app.get("/api/activities")
+def api_get_activities():
+    # return activities as list of objects with id and name
+    result = []
+    for name, info in activities.items():
+        result.append({
+            "id": name,
+            "name": name,
+            "description": info.get("description", "")
+        })
+    return result
+
+
+@app.get("/api/signups")
+def api_get_signups():
+    # return list of { activityId, email }
+    out = []
+    for name, info in activities.items():
+        for email in info.get("participants", []):
+            out.append({"activityId": name, "email": email})
+    return out
+
+
+@app.post("/api/signups")
+async def api_post_signup(req: Request):
+    payload = await req.json()
+    email = payload.get("email")
+    activityId = payload.get("activityId")
+    if not activityId or not email:
+        raise HTTPException(status_code=400, detail="email and activityId required")
+    if activityId not in activities:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    if email in activities[activityId]["participants"]:
+        raise HTTPException(status_code=400, detail="Student already signed up for this activity")
+    activities[activityId]["participants"].append(email)
+    return {"message": f"Signed up {email} for {activityId}"}
+
+
+@app.delete("/api/signups")
+async def api_delete_signup(req: Request):
+    # accept JSON body { email, activityId }
+    payload = await req.json()
+    email = payload.get("email")
+    activityId = payload.get("activityId")
+    if not activityId or not email:
+        raise HTTPException(status_code=400, detail="email and activityId required")
+    if activityId not in activities:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    try:
+        activities[activityId]["participants"].remove(email)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Signup not found")
+    return {"message": f"Removed {email} from {activityId}"}
 
 
 @app.post("/activities/{activity_name}/signup")

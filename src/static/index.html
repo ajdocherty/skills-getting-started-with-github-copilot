@@ -141,7 +141,28 @@
             } else {
               participants.forEach(email => {
                 const li = document.createElement('li');
-                li.textContent = email;
+                li.className = 'participant-item';
+
+                const span = document.createElement('span');
+                span.className = 'participant-email';
+                span.textContent = email;
+
+                const btn = document.createElement('button');
+                btn.className = 'remove-participant';
+                btn.title = 'Remove participant';
+                btn.setAttribute('aria-label', `Remove ${email}`);
+                btn.innerHTML = '&times;';
+                btn.addEventListener('click', async (ev) => {
+                  ev.preventDefault();
+                  // confirm before removing
+                  const ok = window.confirm(`Remove ${email} from ${act.name || id}?`);
+                  if (!ok) return;
+                  // optimistic UI removal
+                  unregisterParticipant(email, id);
+                });
+
+                li.appendChild(span);
+                li.appendChild(btn);
                 listEl.appendChild(li);
               });
             }
@@ -154,6 +175,26 @@
 
             activitiesListEl.appendChild(clone);
           });
+        }
+
+        async function unregisterParticipant(email, activityId) {
+          const id = String(activityId);
+          participantsByActivity[id] = participantsByActivity[id] || [];
+          // remove email locally
+          participantsByActivity[id] = participantsByActivity[id].filter(e => e !== email);
+          // re-render immediately
+          renderActivities();
+
+          // attempt server call (DELETE with JSON body); ignore failures (optimistic UI)
+          try {
+            await fetch('/api/signups', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, activityId: id })
+            });
+          } catch (err) {
+            console.warn('Unregister DELETE failed; UI updated optimistically.');
+          }
         }
 
         signupForm.addEventListener('submit', async (e) => {
